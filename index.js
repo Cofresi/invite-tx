@@ -17,7 +17,7 @@ async function logOutput(msg, delay = 50) {
  */
 async function create() {
   const tx = dashcore.Transaction();
-  await logOutput(`tx ${tx}`);
+  await logOutput(`invite tx ${tx}`);
 }
 
 commander
