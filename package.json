@@ -1,0 +1,11 @@
+{
+  "name": "invite-tx",
+  "version": "0.0.1",
+  "description": "create an invite tx",
+  "main": "index.js",
+  "dependencies": {
+    "@dashevo/dashcore-lib": "^0.17.9",
+    "commander": "^2.20.0"
+  },
+  "license": "MIT"
+}
