@@ -1,16 +1,48 @@
+const Api = require('@dashevo/dapi-client');
 const {
   Transaction,
   PrivateKey,
   crypto,
+  Unit,
+  Output
 } = require('@dashevo/dashcore-lib');
 const bufferReader = require('@dashevo/dashcore-lib').encoding.BufferReader;
 const commander = require('commander');
 
 const log = console;
 
+/**
+ * Create and setup DAPI client instance
+ *
+ * @param {{service: string}[][]} seeds
+ *
+ * @return {Promise<DAPIClient>}
+ */
+async function initApi(seeds) {
+  const services = seeds.length !== 0 ? seeds.map(seed => new Object({ service: seed })) : { service: '195.141.143.49:3000' };
+  api = new Api({
+    seeds: services,
+    port: 3000
+  });
+
+  return api;
+}
+
 async function logOutput(msg, delay = 50) {
   log.info(`${msg}`);
   await new Promise(resolve => setTimeout(resolve, delay));
+}
+
+async function getInputInfo(api, input) {
+  return await api.getTransactionById(input.prevTxId.toString('hex'));
+}
+
+async function getAvailableDuffs(outputInfo) {
+  return outputInfo.reduce((acc, info) => {
+    const unit = Unit.fromBTC(info.value);
+    const duffs = unit.toSatoshis();
+    return acc + duffs;
+  }, 0);
 }
 
 /**
@@ -20,6 +52,7 @@ async function logOutput(msg, delay = 50) {
  *
  * @return {Promise<void>}
  */
+
 async function create() {
 
   const alicePrivKey = 'cRK3oHMLoayzAz2UUheFRRymtAeejte4yb4jf33PxZaj172HcaJ3';
@@ -75,7 +108,7 @@ async function create() {
   let input1ExportString;
   let input2ExportString;
 
-  // outputs don't get exported !!!
+  // outputs don't get exported
 
   if (transaction.inputs[0].isFullySigned() && transaction.inputs[1].isFullySigned()) {
     input1ExportString = input1.toBufferWriter().toBuffer().toString('hex');
@@ -107,9 +140,6 @@ async function create() {
   await logOutput(`script 1 ${importedInput1.toObject().script}`);
   await logOutput(`script 2 ${importedInput2.toObject().script}`);
 
-  await logOutput(`satoshis 1 ${importedInput1.toObject().output.toObject().satoshis}`);
-  await logOutput(`satoshis 2 ${importedInput2.toObject().output.toObject().satoshis}`);
-
   await logOutput(`script 1 isFullySigned ${p2kh1.isFullySigned()}`);
   await logOutput(`script 2 isFullySigned ${p2kh2.isFullySigned()}`);
 
@@ -120,22 +150,44 @@ async function create() {
   userTx.inputs.push(importedInput1);
   userTx.inputs.push(importedInput2);
 
-  // calculate available amount
-  const totalAvailableAmount = userTx.inputs.reduce(async (acc, input) => {
-    const txById = await dapiClient.getTransactionById(input.prevTxId);
-    return acc + txById.vout[input.vout].amount;
-  }, 0);
+  const dapiClient = await initApi(['195.141.143.49:3000']);
 
-  const availableInviteAmount = totalAvailableAmount - userTx._estimateFee();
+  // calculate available amount
+  async function getOutputsInfo(inputArray) {
+    let outputArray = [];
+    let i = 0;
+    for (const input of inputArray) {
+      const info = await getInputInfo(dapiClient, input);
+      userTx.inputs[i].output = {};
+      userTx.inputs[i].output.satoshis = Unit.fromBTC(info.vout[input.outputIndex].value).toSatoshis();
+      userTx.inputs[i].output.script = info.vout[input.outputIndex].scriptPubKey.hex;
+      outputArray.push(info.vout[input.outputIndex]);
+      i++;
+    }
+    return outputArray;
+  }
+
+  const info = await getOutputsInfo(userTx.inputs);
+
+
+  const totalAvailableDuffs = await getAvailableDuffs(info);
+
+  await logOutput(`totalAvailableDuffs ${totalAvailableDuffs}`);
 
   // add bob's address as only output
-  userTx.to(bobAddress, availableInviteAmount);
+  userTx.change(bobAddress, false);
 
-  await logOutput(`available amount ${userTx._getInputAmount()}`);
-  await logOutput(`fee ${userTx._estimateFee()}`);
-  await logOutput(`actual amount ${availableInviteAmount}`);
+  const availableInviteDuffs = totalAvailableDuffs - userTx.getFee();
+
+  await logOutput(`availableInviteDuffs ${availableInviteDuffs}`);
+
+  // TODO: .sign(bobPrivateKey); userTx.serialize();
+
+  /*
   await logOutput(`userTx ${userTx}`);
   await logOutput(`isFullySigned ${userTx.isFullySigned()}`);
+  */
+
 }
 
 commander
