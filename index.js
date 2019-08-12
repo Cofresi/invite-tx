@@ -89,7 +89,7 @@ async function create() {
     .setType(Transaction.TYPES.TRANSACTION_SUBTX_REGISTER)
     .from(inputs.items);
 
-  // add signed inputs to idOpenTx
+  // add inputs to idOpenTx
   const totalAvailableDuffs = await getAvailableDuffs (inputs.items);
   await logOutput(`totalAvailableDuffs ${totalAvailableDuffs}`);
 
