@@ -132,17 +132,17 @@ async function create() {
 
   // create P2PKH
 
-  const p2kh1 = new Transaction.Input.PublicKeyHash(importedInput1);
-  const p2kh2 = new Transaction.Input.PublicKeyHash(importedInput2);
+  const p2pkh1 = new Transaction.Input.PublicKeyHash(importedInput1);
+  const p2pkh2 = new Transaction.Input.PublicKeyHash(importedInput2);
 
-  await logOutput(`p2kh1 ${JSON.stringify(p2kh1.toObject())}`);
-  await logOutput(`p2kh2 ${JSON.stringify(p2kh2.toObject())}`);
+  await logOutput(`p2pkh1 ${JSON.stringify(p2pkh1.toObject())}`);
+  await logOutput(`p2pkh2 ${JSON.stringify(p2pkh2.toObject())}`);
 
   await logOutput(`script 1 ${importedInput1.toObject().script}`);
   await logOutput(`script 2 ${importedInput2.toObject().script}`);
 
-  await logOutput(`script 1 isFullySigned ${p2kh1.isFullySigned()}`);
-  await logOutput(`script 2 isFullySigned ${p2kh2.isFullySigned()}`);
+  await logOutput(`script 1 isFullySigned ${p2pkh1.isFullySigned()}`);
+  await logOutput(`script 2 isFullySigned ${p2pkh2.isFullySigned()}`);
 
 
   const userTx = new Transaction();
