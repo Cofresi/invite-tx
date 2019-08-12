@@ -39,9 +39,7 @@ async function getInputInfo(api, input) {
 
 async function getAvailableDuffs(outputInfo) {
   return outputInfo.reduce((acc, info) => {
-    const unit = Unit.fromBTC(info.value);
-    const duffs = unit.toSatoshis();
-    return acc + duffs;
+    return acc + info.satoshis;
   }, 0);
 }
 
@@ -85,95 +83,43 @@ async function create() {
     ];
 
   // 1. CONSTRUCTION
-  // construct the invite transaction
+  // construct the invite transaction (presigned idOpenTx)
 
-  const transaction = new Transaction()
-    .from(inputs.items)
-    .change(bobAddress)
-    .sign(alicePrivateKey, crypto.Signature.SIGHASH_NONE);
+  const idOpenTx = Transaction()
+    .setType(Transaction.TYPES.TRANSACTION_SUBTX_REGISTER)
+    .from(inputs.items);
 
-  const inviteTx = transaction.serialize();
-  await logOutput(`invite tx ${inviteTx}`);
+  // add signed inputs to idOpenTx
+  const totalAvailableDuffs = await getAvailableDuffs (inputs.items);
+  await logOutput(`totalAvailableDuffs ${totalAvailableDuffs}`);
 
-  const input1 = Transaction.Input.fromObject(transaction.inputs[0]);
-  const input2 = Transaction.Input.fromObject(transaction.inputs[1]);
+  const availableInviteDuffs = totalAvailableDuffs - idOpenTx._estimateFee();
+  await logOutput(`availableInviteDuffs ${availableInviteDuffs}`);
 
-  await logOutput(`output 1 script ${input1.output.toObject().script}`);
-  await logOutput(`output 2 script ${input2.output.toObject().script}`);
-  await logOutput(`output 1 satoshis ${input1.output.toObject().satoshis}`);
-  await logOutput(`output 2 satoshis ${input2.output.toObject().satoshis}`);
+  idOpenTx.change(aliceAddress);
+  await logOutput(`change 1 ${idOpenTx.getChangeOutput().satoshis}`);
+
+  idOpenTx.addFundingOutput(availableInviteDuffs - 5460);
+  await logOutput(`change 2 ${idOpenTx.getChangeOutput().satoshis}`);
+
+  const aliceTemporaryPayload = new Transaction.Payload.SubTxRegisterPayload()
+    .setUserName('alice')
+    .setPubKeyIdFromPrivateKey(alicePrivateKey).sign(alicePrivateKey);
+
+  await logOutput(`aliceTemporaryPayload ${aliceTemporaryPayload}`);
+
+  idOpenTx.setExtraPayload(aliceTemporaryPayload);
+  idOpenTx.sign(alicePrivateKey);
 
   // 2. EXPORT
-  // now just export the P2PKH inputs with their signature scripts
+  // now just export Alice's temporary idOpenTx as a qr code
 
-  let input1ExportString;
-  let input2ExportString;
-
-  // outputs don't get exported
-
-  if (transaction.inputs[0].isFullySigned() && transaction.inputs[1].isFullySigned()) {
-    input1ExportString = input1.toBufferWriter().toBuffer().toString('hex');
-    input2ExportString = input2.toBufferWriter().toBuffer().toString('hex');
-    await logOutput(`export input 1 ${input1ExportString}`);
-    await logOutput(`export input 2 ${input2ExportString}`);
-  }
+  await logOutput(`idOpenTx ${idOpenTx.serialize()}`);
 
   // 3. IMPORT
-  // import the exported strings into the wallet
+  // import the temp idOpenTx into the wallet
 
-  const bufInput1 = Buffer.from(input1ExportString, 'hex');
-  const bufInput2 = Buffer.from(input2ExportString, 'hex');
-
-  const reader1 = new bufferReader(bufInput1);
-  const importedInput1 = Transaction.Input.fromBufferReader(reader1);
-
-  const reader2 = new bufferReader(bufInput2);
-  const importedInput2 = Transaction.Input.fromBufferReader(reader2);
-
-  // create P2PKH
-
-  const p2pkh1 = new Transaction.Input.PublicKeyHash(importedInput1);
-  const p2pkh2 = new Transaction.Input.PublicKeyHash(importedInput2);
-
-  await logOutput(`p2pkh1 ${JSON.stringify(p2pkh1.toObject())}`);
-  await logOutput(`p2pkh2 ${JSON.stringify(p2pkh2.toObject())}`);
-
-  await logOutput(`script 1 ${importedInput1.toObject().script}`);
-  await logOutput(`script 2 ${importedInput2.toObject().script}`);
-
-  await logOutput(`script 1 isFullySigned ${p2pkh1.isFullySigned()}`);
-  await logOutput(`script 2 isFullySigned ${p2pkh2.isFullySigned()}`);
-
-
-  const userTx = new Transaction();
-
-  // add signed inputs
-  userTx.inputs.push(importedInput1);
-  userTx.inputs.push(importedInput2);
-
-  const dapiClient = await initApi(['195.141.143.49:3000']);
-
-  // calculate available amount
-  async function getOutputsInfo(inputArray) {
-    let outputArray = [];
-    let i = 0;
-    for (const input of inputArray) {
-      const info = await getInputInfo(dapiClient, input);
-      userTx.inputs[i].output = new Output({
-        satoshis: Unit.fromBTC(info.vout[input.outputIndex].value).toSatoshis(),
-        script: info.vout[input.outputIndex].scriptPubKey.hex,
-      });
-      outputArray.push(info.vout[input.outputIndex]);
-      i++;
-    }
-    return outputArray;
-  }
-
-  const info = await getOutputsInfo(userTx.inputs);
-
-  const totalAvailableDuffs = await getAvailableDuffs(info);
-
-  await logOutput(`totalAvailableDuffs ${totalAvailableDuffs}`);
+  const bobIdTx = new Transaction(idOpenTx.serialize());
 
   const bobPayload = new Transaction.Payload.SubTxRegisterPayload()
     .setUserName('bob')
@@ -181,20 +127,9 @@ async function create() {
 
   await logOutput(`bobPayload ${bobPayload}`);
 
-  const idOpenTx = Transaction()
-    .setType(Transaction.TYPES.TRANSACTION_SUBTX_REGISTER)
-    .setExtraPayload(bobPayload);
+  bobIdTx.setExtraPayload(bobPayload);
 
-  // add signed inputs to idOpenTx
-  userTx.inputs.forEach(input => idOpenTx.addInput(input, input.output.script, input.output.satoshis));
-
-  const availableInviteDuffs = totalAvailableDuffs - idOpenTx._estimateFee();
-  await logOutput(`availableInviteDuffs ${availableInviteDuffs}`);
-
-  idOpenTx.addFundingOutput(availableInviteDuffs);
-  idOpenTx.change(bobAddress, false);
-
-  await logOutput(`idOpenTx ${idOpenTx}`);
+  await logOutput(`bobIdTx ${bobIdTx}`);
   //await logOutput(`idOpenTx isFullySigned ${idOpenTx.isFullySigned()}`);
 }
 
