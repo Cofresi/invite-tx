@@ -4,9 +4,9 @@ const {
   PrivateKey,
   crypto,
   Unit,
-  Output
 } = require('@dashevo/dashcore-lib');
 const bufferReader = require('@dashevo/dashcore-lib').encoding.BufferReader;
+const Output = require('@dashevo/dashcore-lib').Transaction.Output;
 const commander = require('commander');
 
 const log = console;
@@ -57,9 +57,10 @@ async function create() {
 
   const alicePrivKey = 'cRK3oHMLoayzAz2UUheFRRymtAeejte4yb4jf33PxZaj172HcaJ3';
   const alicePrivateKey = new PrivateKey(alicePrivKey);
-
+  const bobPrivKey = 'cPszkGSpCkXzds5MGi8wHtJLCcD7Zj83XtCCEwXaoHZ4keLD3X8m';
+  const bobPrivateKey = new PrivateKey(bobPrivKey);
   const aliceAddress ='yeXXy72V7hWXnPoy82qZQ5XsqZtFfuWH6G';
-  const bobAddress ='yd5KMREs3GLMe6mTJYr3YrH1juwNwrFCfB';
+  const bobAddress ='yeLjp491QnWuhi5NZHLvXUyCUtoB5NNyjP';
   await logOutput(`aliceAddress ${aliceAddress}`);
   await logOutput(`bobAddress ${bobAddress}`);
 
@@ -158,9 +159,10 @@ async function create() {
     let i = 0;
     for (const input of inputArray) {
       const info = await getInputInfo(dapiClient, input);
-      userTx.inputs[i].output = {};
-      userTx.inputs[i].output.satoshis = Unit.fromBTC(info.vout[input.outputIndex].value).toSatoshis();
-      userTx.inputs[i].output.script = info.vout[input.outputIndex].scriptPubKey.hex;
+      userTx.inputs[i].output = new Output({
+        satoshis: Unit.fromBTC(info.vout[input.outputIndex].value).toSatoshis(),
+        script: info.vout[input.outputIndex].scriptPubKey.hex,
+      });
       outputArray.push(info.vout[input.outputIndex]);
       i++;
     }
@@ -169,25 +171,31 @@ async function create() {
 
   const info = await getOutputsInfo(userTx.inputs);
 
-
   const totalAvailableDuffs = await getAvailableDuffs(info);
 
   await logOutput(`totalAvailableDuffs ${totalAvailableDuffs}`);
 
-  // add bob's address as only output
-  userTx.change(bobAddress, false);
+  const bobPayload = new Transaction.Payload.SubTxRegisterPayload()
+    .setUserName('bob')
+    .setPubKeyIdFromPrivateKey(bobPrivateKey).sign(bobPrivateKey);
 
-  const availableInviteDuffs = totalAvailableDuffs - userTx.getFee();
+  await logOutput(`bobPayload ${bobPayload}`);
 
+  const idOpenTx = Transaction()
+    .setType(Transaction.TYPES.TRANSACTION_SUBTX_REGISTER)
+    .setExtraPayload(bobPayload);
+
+  // add signed inputs to idOpenTx
+  userTx.inputs.forEach(input => idOpenTx.addInput(input, input.output.script, input.output.satoshis));
+
+  const availableInviteDuffs = totalAvailableDuffs - idOpenTx._estimateFee();
   await logOutput(`availableInviteDuffs ${availableInviteDuffs}`);
 
-  // TODO: .sign(bobPrivateKey); userTx.serialize();
+  idOpenTx.addFundingOutput(availableInviteDuffs);
+  idOpenTx.change(bobAddress, false);
 
-  /*
-  await logOutput(`userTx ${userTx}`);
-  await logOutput(`isFullySigned ${userTx.isFullySigned()}`);
-  */
-
+  await logOutput(`idOpenTx ${idOpenTx}`);
+  //await logOutput(`idOpenTx isFullySigned ${idOpenTx.isFullySigned()}`);
 }
 
 commander
